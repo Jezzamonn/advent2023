@@ -1,13 +1,11 @@
 package day8
 
 import shared.getInputFile
-import java.lang.IllegalStateException
-import java.util.PriorityQueue
 
 // Parse a line like "AAA = (BBB, CCC)"
 val graphSectionRegex = """(\w+) = \((\w+), (\w+)\)""".toRegex()
 
-data class Loop(val position: Long, val length: Int): Comparable<Loop> {
+data class Loop(val position: Long, val length: Long): Comparable<Loop> {
     override fun compareTo(other: Loop): Int {
         return position.compareTo(other.position)
     }
@@ -58,7 +56,7 @@ fun main() {
                 val loopStart = firstVisitedAt[visited]!!
                 val loopLength = numSteps - loopStart
                 println("Loop found at $current after $numSteps steps, loop start: $loopStart, loop length: $loopLength")
-                loop = Loop(loopStart.toLong(), loopLength)
+                loop = Loop(loopLength.toLong(), loopLength.toLong())
                 break
             }
             firstVisitedAt[visited] = numSteps
@@ -66,13 +64,24 @@ fun main() {
         loop
     }
 
-    val pq = PriorityQueue<Loop>()
-    pq.addAll(loops)
-    while (!pq.all { it.position == pq.peek().position }) {
-        val smallest = pq.poll()
-//        println("Smallest: $smallest")
-        val next = smallest.copy(position = (smallest.position + smallest.length))
-        pq.add(next)
+    val part2 = loops.reduce { acc, loop ->
+        println("acc: $acc, loop: $loop")
+        var position = acc.position
+        while (position % loop.length != loop.position % loop.length) {
+//            println("position: ${position % loop.length}, target: ${loop.position % loop.length}")
+            position += acc.length
+        }
+        Loop(position, lcm(acc.length, loop.length))
     }
-    println("Part 2: ${pq.peek().position}")
+    println("Part 2: ${part2.position}")
+    // Too high = 12237387389802 :(
+    //            10151663816849  - wahoo!!
+}
+
+fun lcm(a: Long, b: Long): Long {
+    return a * b / gcd(a, b)
+}
+
+fun gcd(a: Long, b: Long): Long {
+    return if (b == 0L) a else gcd(b, a % b)
 }
