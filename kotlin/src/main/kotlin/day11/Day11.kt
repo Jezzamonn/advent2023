@@ -26,7 +26,7 @@ fun countDistances(numGalaxiesPerAxis: List<Long>): Long {
                 .sumOf { (j, numInJ) ->
                     // Count the number of empty rows between i and j
                     val numEmpty = numGalaxiesPerAxis.subList(j + 1, i).count { it == 0L }
-                    numInI * numInJ * (i - j + numEmpty)
+                    numInI * numInJ * (i - j + 999_999 * numEmpty)
                 }
         }
         .sum()
