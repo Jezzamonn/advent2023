@@ -5,7 +5,9 @@ import kotlinx.coroutines.runBlocking
 import shared.getInputFile
 import kotlin.time.Duration.Companion.milliseconds
 
-const val maxStepsInDirection = 3
+const val minStepsInDirection = 4
+const val maxStepsInDirection = 10
+
 
 data class MazePosition(
     val x: Int,
@@ -15,18 +17,36 @@ data class MazePosition(
     val numSouthSteps: Int = 0,
     val numWestSteps: Int = 0) {
     fun neighbors(): List<MazePosition> {
+        val north = MazePosition(x, y - 1, numNorthSteps = numNorthSteps + 1)
+        val east = MazePosition(x + 1, y, numEastSteps = numEastSteps + 1)
+        val south = MazePosition(x, y + 1, numSouthSteps = numSouthSteps + 1)
+        val west = MazePosition(x - 1, y, numWestSteps = numWestSteps + 1)
+
+        if (numNorthSteps in 1..<minStepsInDirection) {
+            return listOf(north)
+        }
+        if (numEastSteps in 1..<minStepsInDirection) {
+            return listOf(east)
+        }
+        if (numSouthSteps in 1..<minStepsInDirection) {
+            return listOf(south)
+        }
+        if (numWestSteps in 1..<minStepsInDirection) {
+            return listOf(west)
+        }
+
         val neighbors = mutableListOf<MazePosition>()
         if (numNorthSteps < maxStepsInDirection && numSouthSteps == 0) {
-            neighbors.add(MazePosition(x, y - 1, numNorthSteps = numNorthSteps + 1))
+            neighbors.add(north)
         }
         if (numEastSteps < maxStepsInDirection && numWestSteps == 0) {
-            neighbors.add(MazePosition(x + 1, y, numEastSteps = numEastSteps + 1))
+            neighbors.add(east)
         }
         if (numSouthSteps < maxStepsInDirection && numNorthSteps == 0) {
-            neighbors.add(MazePosition(x, y + 1, numSouthSteps = numSouthSteps + 1))
+            neighbors.add(south)
         }
         if (numWestSteps < maxStepsInDirection && numEastSteps == 0) {
-            neighbors.add(MazePosition(x - 1, y, numWestSteps = numWestSteps + 1))
+            neighbors.add(west)
         }
         return neighbors
     }
