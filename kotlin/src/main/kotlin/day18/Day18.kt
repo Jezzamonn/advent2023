@@ -4,6 +4,7 @@ import day14.printGrid
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import shared.getInputFile
+import java.io.File
 import java.util.function.Function
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -180,58 +181,23 @@ class Growable2DGrid<T> {
 
 fun main() {
     runBlocking {
-//        solvePart1()
-        solvePart2()
+        val file = getInputFile(18)
+        solvePart1(file)
+        solvePart2(file)
     }
 }
 
-suspend fun solvePart1() {
-    val input = getInputFile(18).readLines()
+suspend fun solvePart1(file: File) {
+    val input = file.readLines()
 
-    val grid = Growable2DGrid<Boolean>()
-    var currentPosition = Point(0,0)
-    grid.set(currentPosition, true)
-    for (line in input) {
-        // Parse out direction and length (ignore the color for now)
+    val directions = input.map { line ->
         val (dirString, lenStr) = line.split(" ")
         val dir = Direction.fromChar(dirString.single())
         val len = lenStr.toInt()
-
-        // "Dig" the path in the direction
-        for (i in 1..len) {
-            currentPosition += dir.delta()
-            grid.set(currentPosition, true)
-//            printFrame(grid)
-        }
+        DirectionDistance(dir, len)
     }
 
-    // Now we should have the outline of the shape. We need to fill it.
-    // Not sure the "best" way to do this but I think this will work:
-    // 1. Expand the grid 1 more around the shape
-    // 2. Do a flood fill from the outside, marking those as false
-    // 3. Everything that's null is the inside, so mark that as true.
-    grid.set(Point(grid.minX - 1, grid.minY - 1), null)
-    grid.set(Point(grid.maxX + 1, grid.maxY + 1), null)
-    // Fill from the outside
-    val toVisit = mutableListOf(Point(grid.minX, grid.minY))
-    while (toVisit.isNotEmpty()) {
-        val visiting = toVisit.removeLast()
-        if (!grid.contains(visiting)) {
-            continue
-        }
-        if (grid.get(visiting) != null) {
-            continue
-        }
-        grid.set(visiting, false)
-
-        val adjacent = Direction.entries
-            .map { visiting + it.delta() }
-        toVisit.addAll(adjacent)
-
-//        printFrame(grid)
-    }
-
-    val part1 = grid.values.count { it == true || it == null }
+    val part1 = countSizeOfShape(directions)
     println("Part 1: $part1")
 }
 
@@ -247,8 +213,8 @@ suspend fun printFrame(grid: Growable2DGrid<Boolean>) {
     delay(50.milliseconds)
 }
 
-fun solvePart2() {
-    val lines = getInputFile(18).readLines().filter { it.isNotEmpty() }
+fun solvePart2(file: File) {
+    val lines = file.readLines().filter { it.isNotEmpty() }
     val directions = lines.map { line ->
         val (_, _, hex) = line.split(" ")
         val distance = hex.substring(2..6).toInt(16)
@@ -280,48 +246,69 @@ fun countSizeOfShape(directions: List<DirectionDistance>): Long {
         segments.add(newSegment)
         currentPosition = newPosition
     }
-    val segmentsByX = segments.flatMap { segment ->
-        if (segment.isVertical) {
-            listOf(segment.start.x.toLong() to segment)
-        } else {
-            listOf(
-                segment.start.x.toLong() to segment,
-                segment.end.x.toLong() to segment)
-        }
-    }.sortedBy { it.first }
+    val segmentsByX = segments.filter { it.isVertical }
+        .groupBy { it.start.x }
+        .toSortedMap()
 
     // The currently active ranges in the shape as we scan across columns.
     var activeRanges = listOf<IntRange>()
-    var lastX = segmentsByX.first().first.toLong()
     var totalArea = 0L
-    for ((x, segment) in segmentsByX) {
-        println("$x: $segment")
-        if (x != lastX) {
-            totalArea += activeRanges.sumOf { it.last - it.first + 1 } * (x - lastX)
+    val toBeRemoved = mutableListOf<IntRange>()
+    for (x in segmentsByX.firstKey()..segmentsByX.lastKey()) {
+        val segmentsInColumn = segmentsByX[x] ?: emptyList()
+//        println("$x: $segmentsInColumn")
+        // Remove things from the last column.
+        for (range in toBeRemoved) {
+            activeRanges = activeRanges.flatMap { subtractFromRange(it, range) }
         }
+        toBeRemoved.clear()
 
         // Update the active ranges
-        if (segment.isVertical) {
+        for (segment in segmentsInColumn) {
             val segmentRange = segment.start.y..segment.end.y
             // If this line is already in the active ranges, reduce the active ranges to not include this. Otherwise, add to active ranges.
-            activeRanges = if (activeRanges.any { rangesOverlap(it, segmentRange) }) {
-                activeRanges.flatMap { subtractFromRange(it, segmentRange) }
+            if (activeRanges.any { rangesOverlap(it, segmentRange) }) {
+                toBeRemoved.add(segmentRange)
             } else {
-                activeRanges + listOf(segmentRange)
+                activeRanges = mergeTouchingRanges(activeRanges + listOf(segmentRange))
             }
         }
+        val areaInColumn = activeRanges.map { it.last - it.first + 1 }.sum()
+        totalArea += areaInColumn
 
-        lastX = x
+//        println("Active ranges: $activeRanges")
+//        println("Area in column: $areaInColumn")
+//        println("Total area: $totalArea")
         // Demo answer
         // 952408144115
         // What I got:
         // 615099948035
     }
+    // Add the last column.
     return totalArea
 }
 
 fun rangesOverlap(range1: IntRange, range2: IntRange): Boolean {
-    return range1.first <= range2.last && range2.first <= range1.last
+    return range1.first < range2.last && range2.first < range1.last
+}
+
+fun mergeTouchingRanges(ranges: List<IntRange>): List<IntRange> {
+    val mergedRanges = mutableListOf<IntRange>()
+    for (range in ranges.sortedBy { it.first }) {
+        if (mergedRanges.isEmpty()) {
+            mergedRanges.add(range)
+        }
+        else {
+            val lastRange = mergedRanges.last()
+            if (lastRange.last == range.first) {
+                mergedRanges[mergedRanges.size - 1] = lastRange.first..range.last
+            }
+            else {
+                mergedRanges.add(range)
+            }
+        }
+    }
+    return mergedRanges
 }
 
 fun subtractFromRange(range1: IntRange, range2: IntRange): List<IntRange> {
@@ -330,10 +317,10 @@ fun subtractFromRange(range1: IntRange, range2: IntRange): List<IntRange> {
     }
     val result = mutableListOf<IntRange>()
     if (range1.first < range2.first) {
-        result.add(range1.first..range2.first - 1)
+        result.add(range1.first..range2.first)
     }
     if (range1.last > range2.last) {
-        result.add(range2.last + 1..range1.last)
+        result.add(range2.last..range1.last)
     }
     return result
 }
