@@ -3,6 +3,8 @@ package day24
 import shared.getInputFile
 import java.io.File
 import java.lang.StringBuilder
+import kotlin.math.abs
+import kotlin.math.log
 import kotlin.math.roundToLong
 import kotlin.math.sqrt
 
@@ -27,6 +29,10 @@ data class Point3D(val x: Double, val y: Double, val z: Double) {
             z * other.x - x * other.z,
             x * other.y - y * other.x
         )
+    }
+
+    fun dotProduct(other: Point3D): Double {
+        return x * other.x + y * other.y + z * other.z
     }
 
     fun sqDistanceTo(other: Point3D): Double {
@@ -59,20 +65,20 @@ data class Point3D(val x: Double, val y: Double, val z: Double) {
 data class Hailstone(val position: Point3D, val velocity: Point3D) {
 
     fun coordOfXYPlaneIntersection(other: Hailstone): DoublePoint? {
-        val m1 = velocity.y.toDouble() / velocity.x.toDouble()
-        val m2 = other.velocity.y.toDouble() / other.velocity.x.toDouble()
-        val b1 = position.y.toDouble() - m1 * position.x.toDouble()
-        val b2 = other.position.y.toDouble() - m2 * other.position.x.toDouble()
+        val m1 = velocity.y / velocity.x
+        val m2 = other.velocity.y / other.velocity.x
+        val b1 = position.y - m1 * position.x
+        val b2 = other.position.y - m2 * other.position.x
         if (m1 == m2) {
             // No intersection
             return null
         }
         // Handle vertical lines straight away.
         if (m1.isInfinite()) {
-            return DoublePoint(position.x.toDouble(), (m2 * position.x.toDouble() + b2))
+            return DoublePoint(position.x, (m2 * position.x + b2))
         }
         if (m2.isInfinite()) {
-            return DoublePoint(other.position.x.toDouble(), (m1 * other.position.x.toDouble() + b1))
+            return DoublePoint(other.position.x, (m1 * other.position.x + b1))
         }
         val xCoord = (b2 - b1) / (m1 - m2)
         val yCoord = m1 * xCoord + b1
@@ -102,8 +108,10 @@ data class Hailstone(val position: Point3D, val velocity: Point3D) {
      * (also https://math.stackexchange.com/a/2217845/352335)
      */
     fun sqDistanceTo(other: Hailstone): Double {
-        val n = velocity.crossProduct(other.velocity).normalized
-        return (other.position - position).crossProduct(n).sqMagnitude
+        // Not normalized.
+        val n = velocity.crossProduct(other.velocity)
+        val top = n.dotProduct(other.position - position)
+        return top * top / n.sqMagnitude
     }
 }
 
@@ -116,7 +124,8 @@ fun main() {
     countIntersecting(hailstones, 200000000000000.0, 400000000000000.0)
 
     // Part 2: Find the line that intersects all other lines.
-    findIntersecting(hailstones)
+//    findIntersecting(hailstones)
+    checkResult(hailstones, hailstones[0], hailstones[1], 542714985863.0, 469657037828.0)
 }
 
 fun countIntersecting(hailstones: List<Hailstone>, rangeMin: Double, rangeMax: Double) {
@@ -171,80 +180,109 @@ fun findIntersecting(hailstones: List<Hailstone>) {
     // Try points on two of the lines and see how close it is to the third line.
     val h1 = hailstones[0]
     val h2 = hailstones[1]
-    val h3 = hailstones[2]
 
-    var t1 = 0L
-    var t2 = 0L
     // Use simulated annealing to find t1 and t2 such that the distance to hailstone3 is minimized.
     // Start with a large step size, then decrease it over time.
-    var t1StepSize = 1000000000000000000L
-    var t2StepSize = 1000000000000000000L
-    var bestDistance = Double.MAX_VALUE
-    var bestHailstone: Hailstone? = null
-    while (t1StepSize > 0 && t2StepSize > 0) {
-        var betterInIDirection = false
-        var betterInJDirection = false
-        for (i in listOf(-1, 1)) {
-            for (j in listOf(-1, 1)) {
-                val newT1 = t1 + i * t1StepSize
-                val newT2 = t2 + j * t2StepSize
-                val p1 = h1.position + h1.velocity * newT1.toDouble()
-                val p2 = h2.position + h2.velocity * newT2.toDouble()
+    var overallBestDistance = Double.MAX_VALUE
+    var lastPrintedBestNumDigits = Int.MAX_VALUE
+    var overallBestHailstone: Hailstone? = null
+    var bestT1 = 0.0
+    var bestT2 = 0.0
+    val decay = 0.995
 
-                val hailstone = Hailstone(p1, p2 - p1)
-                val sqDistToAll = hailstones.sumOf { it.sqDistanceTo(hailstone) }
-                if (sqDistToAll < bestDistance) {
-                    bestDistance = sqDistToAll
-                    bestHailstone = hailstone
-                    t1 = newT1
-                    t2 = newT2
-                    betterInIDirection = i != 0
-                    betterInJDirection = j != 0
-                    println("New best distance: $bestDistance")
+    var t1StepSize = 10000000000.0
+    var t1 = 0.0
+    while (t1StepSize > 0.4) {
+        for (deltaT1 in listOf(-1.0, 1.0)) {
+            val newT1 = (t1 + deltaT1 * t1StepSize).roundToLong().toDouble()
+
+            val (t2, distance) = getBestT2ForT1(newT1, hailstones, h1, h2)
+
+            if (distance < overallBestDistance) {
+                overallBestDistance = distance
+                t1 = newT1
+                bestT1 = t1
+                bestT2 = t2
+
+                val numDigits = log(overallBestDistance, 10.0).toInt()
+                if (numDigits < lastPrintedBestNumDigits) {
+                    lastPrintedBestNumDigits = numDigits
+                    println("New best distance: $overallBestDistance")
                     println("t1: $t1, t2: $t2")
                 }
             }
         }
-        t1StepSize = if (betterInIDirection) t1StepSize else (t1StepSize * 0.9).toLong()
-        t2StepSize = if (betterInJDirection) t2StepSize else (t2StepSize * 0.9).toLong()
+        t1StepSize *= decay
     }
 
-    // One method has this:
-    // New best distance: 7.42296908820297E30
-    // t1: 5.318486864780333E11, t2: -9.446000783545353E20
+    println()
+    checkResult(hailstones, h1, h2, bestT1, bestT2)
+//    println()
+}
 
-    // Method 2:
-    // New best distance: 7.422969088583463E30
-    // t1: 5.318486913097331E11, t2: -3.362421874999979E20
-    // ? Some local minimum?
+data class T2SearchResult(val t2: Double, val distance: Double)
 
-    println("Found best: $bestHailstone")
-    // Now to adjust the starting point / velocity so that the hailstone hits the others at the right time.
-    // We can do this with just two lines, and t1 and t2, and the points on those lines
+fun getBestT2ForT1(t1: Double, hailstones: List<Hailstone>, h1: Hailstone, h2: Hailstone): T2SearchResult {
+    val decay = 0.995
+    // For each t1 value, search for the best t2
+    var t2StepSize = 10000000000.0
+    var bestDistance = Double.MAX_VALUE
 
-    if (bestHailstone == null) {
-        println("No best hailstone found")
-        return
+    var t2 = 0.0
+    while (t2StepSize > 0.4) {
+        for (deltaT2 in listOf(-1.0, 1.0)) {
+            val newT2 = (t2 + deltaT2 * t2StepSize).roundToLong().toDouble()
+            val p1 = h1.position + h1.velocity * t1
+            val p2 = h2.position + h2.velocity * newT2
+            val hailstone = Hailstone(p1, p2 - p1)
+            val sqDistToAll = hailstones.sumOf { it.sqDistanceTo(hailstone) }
+            if (sqDistToAll < bestDistance) {
+                bestDistance = sqDistToAll
+                t2 = newT2
+            }
+        }
+        t2StepSize *= decay
     }
 
-//    // Check all the other hailstones too?
-//    for ((index, hailstone) in hailstones.withIndex()) {
-//        val sqDist = bestHailstone.sqDistanceTo(hailstone)
-//        println("Distance to hailstone $index: $sqDist")
+    return T2SearchResult(t2, bestDistance)
+}
+
+fun checkResult(hailstones: List<Hailstone>, h1: Hailstone, h2: Hailstone, t1: Double, t2: Double) {
+    val p1 = h1.position + h1.velocity * t1
+    val p2 = h2.position + h2.velocity * t2
+    val hailstone = Hailstone(p1, p2 - p1)
+
+    val sqDistToAll = hailstones.sumOf { it.sqDistanceTo(hailstone) }
+    println("sqDistToAll: $sqDistToAll")
+
+//    for (h in hailstones) {
+//        println("Distance to $h: ${hailstone.sqDistanceTo(h)}")
 //    }
-
     println("t1: $t1, t2: $t2")
-    println("P1: ${h1.position + h1.velocity * t1.toDouble()}")
-    println("P2: ${h2.position + h2.velocity * t2.toDouble()}")
+    println("P1: ${h1.position + h1.velocity * t1}")
+    println("P2: ${h2.position + h2.velocity * t2}")
+//    println("Hailstone: $hailstone")
+//    println("at t=0: ${hailstone.position + hailstone.velocity * 0.0}")
+//    println("at t=1: ${hailstone.position + hailstone.velocity * 1.0}")
 
     val tDiff = t2 - t1
     // Adjust velocity so that the magnitude is equal to tDiff
-    val newVelocity = bestHailstone.velocity.normalized * tDiff.toDouble()
+    val newVelocity = hailstone.velocity * (1 / tDiff)
 
     // The starting point is p1 - v * t1
-    val newStartingPoint = bestHailstone.position - newVelocity * t1.toDouble()
-    val hailstone = Hailstone(newStartingPoint, newVelocity)
-    println("Final hailstone: $hailstone")
-    println("at t1: ${hailstone.position + hailstone.velocity * t1.toDouble()}")
-    println("at t2: ${hailstone.position + hailstone.velocity * t2.toDouble()}")
+    val newStartingPoint = hailstone.position - newVelocity * t1
+    val finalHailstone = Hailstone(newStartingPoint, newVelocity)
+    println("Final hailstone start position as long: X = ${newStartingPoint.x.toLong()}, Y = ${newStartingPoint.y.toLong()}, Z = ${newStartingPoint.z.toLong()}")
+    println("Added = ${(newStartingPoint.x + newStartingPoint.y + newStartingPoint.z).toLong()}")
+    // Wahoooo!!!
+//    println("at t1: ${finalHailstone.position + finalHailstone.velocity * t1}")
+//    println("at t2: ${finalHailstone.position + finalHailstone.velocity * t2}")
+
+    // Final check: does this hailstone intersect all the others at the right time?
+//    for ((i, h) in hailstones.withIndex()) {
+//        val p = finalHailstone.coordOfXYPlaneIntersection(h) ?: return
+//        val t1 = finalHailstone.timeForXPosition(p.x)
+//        val t2 = h.timeForXPosition(p.x)
+//        println("i: $i: t1: $t1, t2: $t2")
+//    }
 }
