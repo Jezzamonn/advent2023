@@ -2,121 +2,149 @@ package day25
 
 import shared.getInputFile
 
-// Graph
-data class Node(val name: String, val edges: MutableList<String> = mutableListOf()) {
+class Graph(pairs: List<Pair<String, String>>) {
 
-    fun deepCopy(): Node {
-        return Node(name, edges.toMutableList())
+    // Weight = current flow through edge. 0 = no flow, 1 = flow from a to b.
+    val edgeWeights = pairs.flatMap { listOf(it, it.second to it.first) }.associateWith { 0 }.toMutableMap()
+    val allNodes = pairs.flatMap { listOf(it.first, it.second) }.toSortedSet()
+
+    fun getEdgeWeight(node1: String, node2: String): Int? {
+        return edgeWeights[node1 to node2]
     }
 
-}
+    fun getNeighbors(node: String): List<String> {
+        return allNodes.filter { it != node && getEdgeWeight(node, it) != null }
+    }
 
-data class Graph(val nodes: MutableMap<String, Node> = mutableMapOf()) {
+    fun setEdgeWeight(node1: String, node2: String, weight: Int) {
+        edgeWeights[node1 to node2] = weight
+        edgeWeights[node2 to node1] = -weight
+    }
 
-    fun deepCopy(): Graph {
-        val newGraph = Graph()
-        nodes.forEach { (name, node) ->
-            newGraph.nodes[name] = node.deepCopy()
+    fun clearFlow() {
+        for ((node1, node2) in edgeWeights.keys) {
+            edgeWeights[node1 to node2] = 0
         }
-        return newGraph
     }
 
-    fun getNumberOfDisconnectedGroups(): Int {
-        val visited = mutableSetOf<String>()
-        var numDisconnected = 0
-        while (visited.size < nodes.size) {
-            val start = nodes.values.first { it.name !in visited }
-            val toVisit = mutableListOf(start)
-            while (toVisit.isNotEmpty()) {
-                val visiting = toVisit.removeLast()
-                visited.add(visiting.name)
-                visiting.edges.forEach { edge ->
-                    if (edge !in visited) {
-                        toVisit.add(nodes[edge]!!)
-                    }
-                }
-            }
-            numDisconnected++
+    init {
+        for ((node1, node2) in pairs) {
+            setEdgeWeight(node1, node2, 0)
         }
-        return numDisconnected
     }
 
-    fun removeEdges(other: Graph): Graph {
-        val copy = this.deepCopy()
-        for (node in copy.nodes.values) {
-            node.edges.removeIf { other.nodes[it]?.edges?.contains(node.name) ?: false }
-        }
-        return copy
-    }
 }
 
 fun main() {
-    // Read input, parse lines like "cmg: qnr nvd lhk bvb" into a list of nodes.
-    val graph = Graph()
-    getInputFile(25).useLines { lines ->
-        lines
-            .filter { it.isNotEmpty() }
-            .forEach { line ->
-                val (name, edges) = line.split(":").map { it.trim() }
-                val node = graph.nodes.getOrPut(name) { Node(name) }
-                edges.split(" ").forEach { edge ->
-                    val otherNode = graph.nodes.getOrPut(edge) { Node(edge) }
-                    node.edges.add(edge)
-                    otherNode.edges.add(name)
-                }
+    // Read input, parse lines like "cmg: qnr nvd lhk bvb" into a list of node pairs
+    val pairs = getInputFile(25).readLines()
+        .filter { it.isNotEmpty() }
+        .flatMap { line ->
+            val (node, edges) = line.split(":").map { it.trim() }
+            edges.split(" ").map { edge ->
+                node to edge
             }
+        }
+
+    val allNodes = pairs.flatMap { (node1, node2) -> listOf(node1, node2) }.toSortedSet()
+
+    val graph = Graph(pairs)
+
+    // Pick two random nodes, find maximum flow. If 3, then we have two sections of the min cut.
+
+    var start: String
+    var end: String
+    while (true) {
+        start = allNodes.random()
+        end = allNodes.subtract(setOf(start)).random()
+        println("Start: $start, end: $end")
+
+        val maxFlow = findMaxFlow(graph, start, end)
+        println("Max flow: $maxFlow")
+        println()
+
+        if (maxFlow == 3) {
+            break
+        }
+        graph.clearFlow()
     }
 
-    // Find the three edges to remove in order to split the graph into two groups.
-    // Not sure the best way, but what I'm going to try is to traverse the graph and create a tree.
-    // Then check if by removing all those edges, the graph is split into two groups.
-    // If not, try again.
-
-    println("Before removing tree, graph has ${graph.getNumberOfDisconnectedGroups()} groups")
-
-    println("graph num nodes: ${graph.nodes.size}")
-    val tree = makeTreeGraph(graph)
-    println("tree num nodes: ${tree.nodes.size}")
-
-    val graphWithoutTree = graph.removeEdges(tree)
-    println("graphWithoutTree num nodes: ${graphWithoutTree.nodes.size}")
-    println("After removing tree, graph has ${graphWithoutTree.getNumberOfDisconnectedGroups()} groups")
-    // Again! ?
-    val tree2 = makeTreeGraph(graphWithoutTree)
-    println("tree2 num nodes: ${tree2.nodes.size}")
-    val graphWithoutTree2 = graphWithoutTree.removeEdges(tree2)
-    println("graphWithoutTree2 num nodes: ${graphWithoutTree2.nodes.size}")
-    println("After removing tree2, graph has ${graphWithoutTree2.getNumberOfDisconnectedGroups()} groups")
-    // Again! ?
-    val tree3 = makeTreeGraph(graphWithoutTree2)
-    val graphWithoutTree3 = graphWithoutTree2.removeEdges(tree3)
-    println("After removing tree3, graph has ${graphWithoutTree3.getNumberOfDisconnectedGroups()} groups")
+    val reachable = reachableNodes(graph, start)
+    println("Nodes in first section: ${reachable.size}")
+    println("Answer for part 2: ${reachable.size * (allNodes.size - reachable.size)}")
 }
 
-fun makeTreeGraph(graph: Graph): Graph {
-    // Oh hey, creating a random tree is maze generation stuff. I'll just go with the easiest one.
-    val treeGraph = Graph()
-    val start = graph.nodes.values.first()
-    val toVisit = mutableListOf(start.name)
+fun findMaxFlow(graph: Graph, start: String, end: String): Int {
+    // Find a path from start to end, add flow to all edges in the path.
+    // Repeat until no path found.
+    var maxFlow = 0
+    while (true) {
+        val path = findPath(graph, start, end) ?: break
+        // Update the flow in the graph.
+        for (i in 0..<path.size - 1) {
+            val node1 = path[i]
+            val node2 = path[i + 1]
+            val weight = graph.getEdgeWeight(node1, node2)!!
+            graph.setEdgeWeight(node1, node2, weight + 1)
+        }
+        maxFlow++
+    }
+    return maxFlow
+}
 
-    treeGraph.nodes[start.name] = Node(start.name)
-
-    while (toVisit.isNotEmpty()) {
-        // Remove a random node from the list.
-        val r = toVisit.indices.random()
-        val visiting = toVisit[r]
-        val possibleEdges = graph.nodes[visiting]!!.edges.filter { it !in treeGraph.nodes }
-        if (possibleEdges.isEmpty()) {
-            toVisit.removeAt(r)
+fun findPath(graph: Graph, start: String, end: String): List<String>? {
+    // Find a path from start to end, using BFS.
+    val queue = ArrayDeque<List<String>>()
+    queue.add(listOf(start))
+    val visited = mutableSetOf<String>()
+    while (queue.isNotEmpty()) {
+        val path = queue.removeFirst()
+        val node = path.last()
+        if (node == end) {
+            return path
+        }
+        if (node in visited) {
             continue
         }
-        val edge = possibleEdges.random()
-        treeGraph.nodes[edge] = Node(edge)
-        // Connect the two nodes
-        treeGraph.nodes[visiting]!!.edges.add(edge)
-        treeGraph.nodes[edge]!!.edges.add(visiting)
+        visited.add(node)
 
-        toVisit.add(edge)
+        val possibleNeighbors = graph
+            .getNeighbors(node)
+            // Maximum flow is 1, so filter out neighbors that are already at the maximum flow.
+            .filter { graph.getEdgeWeight(node, it)!! < 1 }
+
+        for (nextNode in possibleNeighbors) {
+            if (nextNode in visited) {
+                continue
+            }
+            queue.add(path + nextNode)
+        }
     }
-    return treeGraph
+    return null
+}
+
+fun reachableNodes(graph: Graph, start: String): Set<String> {
+    val queue = ArrayDeque<String>()
+    queue.add(start)
+    val visited = mutableSetOf<String>()
+    while (queue.isNotEmpty()) {
+        val node = queue.removeFirst()
+        if (node in visited) {
+            continue
+        }
+        visited.add(node)
+
+        val possibleNeighbors = graph
+            .getNeighbors(node)
+            // Maximum flow is 1, so filter out neighbors that are already at the maximum flow.
+            .filter { graph.getEdgeWeight(node, it)!! < 1 }
+
+        for (nextNode in possibleNeighbors) {
+            if (nextNode in visited) {
+                continue
+            }
+            queue.add(nextNode)
+        }
+    }
+    return visited
 }
