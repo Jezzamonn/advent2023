@@ -1,0 +1,9 @@
+digraph {
+    "n_broadcaster" -> "n_%a"
+    "n_broadcaster" -> "n_%b"
+    "n_broadcaster" -> "n_%c"
+    "n_%a" -> "n_%b"
+    "n_%b" -> "n_%c"
+    "n_%c" -> "n_&inv"
+    "n_&inv" -> "n_%a"
+}
